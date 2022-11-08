@@ -48,3 +48,4 @@ The console messages will be a mess of aria2 downloads and transcription output 
 * Only skip *files* that have corresponding subtitles, rather than skipping an entire item when it has any subtitles?
 * Verify file hashes when downloading? (aria2 has an option for this)
 * Change directories to the directory containing `ia_whisperer.py` before saving files?
+* Make `ia_whisperer.py` an executable that can run without being passed through Python
