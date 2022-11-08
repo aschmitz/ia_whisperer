@@ -25,9 +25,11 @@ This probably needs to be cleaned up a fair bit. For now, you'll want to edit `i
 
 Everything else should be fine as-is. (And in practice, you'll only need to fiddle with `WHISPER_WORKERS`, unless you have an RTX 3090, in which case you can just leave the defaults.)
 
-Once you've got everything set up there, run `python3 ia_whisperer.py [collection name]` with some collection you want to generate subtitles for.
+Once you've got everything set up there, run `python3 ia_whisperer.py [collection name]` with some collection you want to generate subtitles for. It will (after the first transcription is create) create a folder in the current directory with the name of the collection, containing directories for each item in that collection, with files inside for subtitles for each video file in that item.
 
 You can kill the process at any time, and it will cleanly abort. Re-running it will, after a bit of checking, pick back up where you left off (with the exception of any transcriptions that were going on when you killed it, which will be re-started from the beginning).
+
+The console messages will be a mess of aria2 downloads and transcription output at first, for better or worse.
 
 ## Optimizations
 
@@ -45,3 +47,4 @@ You can kill the process at any time, and it will cleanly abort. Re-running it w
 * Consider deduplicating files if there are multiple with the same hash but different names in the same item? Unlikely to be a big savings.
 * Only skip *files* that have corresponding subtitles, rather than skipping an entire item when it has any subtitles?
 * Verify file hashes when downloading? (aria2 has an option for this)
+* Change directories to the directory containing `ia_whisperer.py` before saving files?
