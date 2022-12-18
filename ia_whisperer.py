@@ -34,7 +34,7 @@ ARIA2_FILE_ALLOCATION = 'none'
 WHISPER_DEVICE = 'cuda' # or 'cpu' if you have no CUDA devices
 WHISPER_TEMPERATURE = tuple(numpy.arange(0, 1.0 + 1e-6, 0.2))
 
-FILE_REGEX = re.compile(r'^(?P<base>.+?)\.(?:ia\.)?(?P<ext>mp4|avi|mov|ogv|mpeg)$')
+FILE_REGEX = re.compile(r'^(?P<base>.+?)(?:\.ia|_(?:512|256|128|64)kb)?\.(?P<ext>mp4|avi|mov|ogv|mpeg|flac|mp3|wav)$')
 SUBTITLE_REGEX = re.compile(r'\.(stt|vtt)$')
 
 
