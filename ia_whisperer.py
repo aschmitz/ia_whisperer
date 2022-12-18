@@ -83,7 +83,13 @@ def item_processor(downloaded_length, item_queue, whisper_queue):
                         f'--out={file_download_path(details)}',
                         ia_file.url])
 
-                downloaded_length.value += floor(float(details['length']))
+                try:
+                    downloaded_length.value += floor(float(details['length']))
+                except:
+                    # For some reason we couldn't parse the length. Assume it
+                    # was about five minutes - this will likely be wrong, but
+                    # it's good enough.
+                    downloaded_length.value += 300
 
                 whisper_queue.put(details)
 
