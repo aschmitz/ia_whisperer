@@ -7,7 +7,7 @@ import sys
 import time
 import traceback
 
-from internetarchive import get_item
+import internetarchive
 import ffmpeg
 import numpy
 import whisper
@@ -39,9 +39,10 @@ SUBTITLE_REGEX = re.compile(r'\.(stt|vtt)$')
 
 
 def collection_processor(item_queue):
-    collection = get_item(COLLECTION_NAME)
-    # TODO: use a better search? (mediatype? year?)
-    for item in collection.contents():
+    # Get items by their publication date, oldest to newest.
+    search = internetarchive.search_items(
+        query=f'collection:({COLLECTION_NAME})', sorts=['publicdate'])
+    for item in search.iter_as_items():
         item_queue.put(item.identifier)
 
     for _ in range(0, ITEM_WORKERS):
@@ -59,7 +60,7 @@ def item_processor(downloaded_length, item_queue, whisper_queue):
         if item_name == 'DONE':
             break
 
-        item = get_item(item_name)
+        item = internetarchive.get_item(item_name)
         files = item_files(item)
 
         for details in files:
