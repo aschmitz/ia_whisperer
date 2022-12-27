@@ -37,13 +37,15 @@ WHISPER_TEMPERATURE = tuple(numpy.arange(0, 1.0 + 1e-6, 0.2))
 FILE_REGEX = re.compile(r'^(?P<base>.+?)(?:\.ia|_(?:512|256|128|64)kb)?\.(?P<ext>mp4|avi|mov|ogv|mpeg|flac|mp3|wav)$')
 SUBTITLE_REGEX = re.compile(r'\.(stt|vtt)$')
 
+FINISHED_ITEMS_PATH = path.join(COLLECTION_NAME, 'finished_items.txt')
 
-def collection_processor(item_queue):
+def collection_processor(item_queue, finished_items):
     # Get items by their publication date, oldest to newest.
     search = internetarchive.search_items(
         query=f'collection:({COLLECTION_NAME})', sorts=['publicdate'])
     for item in search.iter_as_items():
-        item_queue.put(item.identifier)
+        if not item.identifier in finished_items:
+            item_queue.put(item.identifier)
 
     for _ in range(0, ITEM_WORKERS):
         item_queue.put('DONE')
@@ -51,7 +53,7 @@ def collection_processor(item_queue):
     print('Collection worker done')
 
 
-def item_processor(downloaded_length, item_queue, whisper_queue):
+def item_processor(downloaded_length, item_queue, whisper_queue, finished_item_queue):
     while True:
         while downloaded_length.value > TO_PROCESS_BUFFER_SECONDS:
             time.sleep(1)
@@ -62,6 +64,8 @@ def item_processor(downloaded_length, item_queue, whisper_queue):
 
         item = internetarchive.get_item(item_name)
         files = item_files(item)
+
+        had_new_files = False
 
         for details in files:
             if path.exists(file_subtitle_path(details, 'vtt')):
@@ -91,12 +95,17 @@ def item_processor(downloaded_length, item_queue, whisper_queue):
                     # it's good enough.
                     downloaded_length.value += 300
 
+                had_new_files = True
                 whisper_queue.put(details)
 
                 print(f"Downloaded {item.identifier}/{details['base']}, {downloaded_length.value} seconds of video buffered")
             except Exception:
                 print(f"Exception while downloading {item.identifier}/{details['base']}:")
                 traceback.print_exc()
+
+        if not had_new_files:
+            print(f"Marking item {item.identifier} as done.")
+            finished_item_queue.put(item.identifier)
 
     print('Item worker done')
 
@@ -146,6 +155,18 @@ def file_processor(downloaded_length, whisper_queue):
 
     print('File worker done')
 
+
+def finished_item_processor(finished_item_queue):
+    with open(FINISHED_ITEMS_PATH, 'a') as finished_items_handle:
+        while True:
+            item_name = finished_item_queue.get()
+            if item_name == 'DONE':
+                break
+
+            finished_items_handle.write(f"{item_name}\n")
+
+    print('Finished item worker done')
+
 def item_files(item):
     bases = {}
 
@@ -184,17 +205,29 @@ if __name__ == '__main__':
         downloaded_length = manager.Value('i', 0)
         item_queue = manager.Queue()
         whisper_queue = manager.Queue()
+        finished_item_queue = manager.Queue()
+
+        try:
+            with open(FINISHED_ITEMS_PATH, 'r') as finished_items_handle:
+                finished_items = set(finished_items_handle.read().splitlines())
+        except:
+            finished_items = set()
 
         collection_process = Process(
             target=collection_processor,
-            args=(item_queue,))
+            args=(item_queue, finished_items))
         collection_process.start()
+
+        finished_item_process = Process(
+            target=finished_item_processor,
+            args=(finished_item_queue,))
+        finished_item_process.start()
 
         item_workers = list()
         for _ in range(0, ITEM_WORKERS):
             item_worker = Process(
                 target=item_processor,
-                args=(downloaded_length, item_queue, whisper_queue))
+                args=(downloaded_length, item_queue, whisper_queue, finished_item_queue))
             item_worker.start()
             item_workers.append(item_worker)
 
@@ -216,5 +249,8 @@ if __name__ == '__main__':
 
         for worker in whisper_workers:
             worker.join()
+
+        # Make sure we've flushed a record of all the items we've finished.
+        finished_item_process.join()
 
         print("We're all done here!")
