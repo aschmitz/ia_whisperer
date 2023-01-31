@@ -1,14 +1,14 @@
-from math import floor
-from multiprocessing import Process, Manager
-from os import makedirs, path, unlink
 import re
 import subprocess
 import sys
 import time
 import traceback
+from math import floor
+from multiprocessing import Manager, Process
+from os import environ, makedirs, path, unlink
 
-import internetarchive
 import ffmpeg
+import internetarchive
 import numpy
 import whisper
 
@@ -17,10 +17,11 @@ if len(sys.argv) < 2:
     exit(1)
 
 
-TEMP_DIR = 'download'
+TEMP_DIR = environ.get("IA_WHISPERER_TEMP_DIR", "download")
 COLLECTION_NAME = sys.argv[1]
+
 ITEM_WORKERS = 2
-WHISPER_WORKERS = 2
+WHISPER_WORKERS = 1  # 1 for 3080, 2 for 3090/4090
 TO_PROCESS_BUFFER_SECONDS = 60 * 60 * 24 # build a 24-hour buffer of video
 
 WHISPER_MODEL = 'medium'
@@ -37,6 +38,7 @@ WHISPER_TEMPERATURE = tuple(numpy.arange(0, 1.0 + 1e-6, 0.2))
 FILE_REGEX = re.compile(r'^(?P<base>.+?)(?:\.ia|_(?:512|256|128|64)kb)?\.(?P<ext>mp4|avi|mov|ogv|mpeg|flac|mp3|wav)$')
 SUBTITLE_REGEX = re.compile(r'\.(stt|vtt)$')
 
+makedirs(COLLECTION_NAME, exist_ok=True)
 FINISHED_ITEMS_PATH = path.join(COLLECTION_NAME, 'finished_items.txt')
 
 def collection_processor(item_queue, finished_items):
@@ -77,6 +79,9 @@ def item_processor(downloaded_length, item_queue, whisper_queue, finished_item_q
             try:
                 if (not path.exists(file_download_path(details))) or \
                     path.exists(f"{file_download_path(details)}.aria2"):
+                    full_download_path = file_download_path(details)
+                    download_dir = path.dirname(full_download_path)
+                    download_filename = path.basename(full_download_path)
                     subprocess.run([
                         'aria2c',
                         f'--file-allocation={ARIA2_FILE_ALLOCATION}',
@@ -84,7 +89,8 @@ def item_processor(downloaded_length, item_queue, whisper_queue, finished_item_q
                         '--max-connection-per-server=10',
                         # '--download-result=hide',
                         '--console-log-level=warn',
-                        f'--out={file_download_path(details)}',
+                        f'--dir={download_dir}',
+                        f'--out={download_filename}',
                         ia_file.url])
 
                 try:
@@ -132,11 +138,17 @@ def file_processor(downloaded_length, whisper_queue):
 
         ensure_file_item_path(details)
 
-        with open(file_subtitle_path(details, 'txt'), 'w', encoding='utf-8') as txt:
-            whisper.utils.write_txt(transcribed['segments'], file=txt)
-
-        with open(file_subtitle_path(details, 'vtt'), 'w', encoding='utf-8') as vtt:
-            whisper.utils.write_vtt(transcribed['segments'], file=vtt)
+        for output_format in ("txt", "vtt"):
+            with open(file_subtitle_path(details, output_format), 'w', encoding='utf-8') as out:
+                # defensiveness to this refactor: https://github.com/openai/whisper/pull/333
+                if hasattr(whisper.utils, f"write_{output_format}"):
+                    # old
+                    write_fn = getattr(whisper.utils, f"write_{output_format}")
+                    write_fn(transcribed['segments'], file=out)
+                else:
+                    # new
+                    write_obj = whisper.utils.get_writer(output_format, output_dir="/dev/null")
+                    write_obj.write_result(transcribed, file=out)
 
         try:
             downloaded_length.value -= floor(float(details['length']))
@@ -168,6 +180,7 @@ def finished_item_processor(finished_item_queue):
                 break
 
             finished_items_handle.write(f"{item_name}\n")
+            finished_items_handle.flush()
 
     print('Finished item worker done')
 
