@@ -123,7 +123,11 @@ def file_processor(downloaded_length, whisper_queue):
                 language=WHISPER_LANGUAGE, verbose=True)
         except Exception as e:
             print("FFmpeg error, skipping this file")
-            downloaded_length.value -= floor(float(details['length']))
+            try:
+                downloaded_length.value -= floor(float(details['length']))
+            except:
+                # Matches our additions, if this doesn't parse correctly.
+                downloaded_length.value -= 300
             continue
 
         ensure_file_item_path(details)
